@@ -1,0 +1,141 @@
+- name: Configure Munge on Manager
+  hosts: master
+  become: yes
+  tasks:
+    - name: Set permissions for Munge key on Manager
+      file:
+        path: /etc/munge/munge.key
+        owner: munge
+        group: munge
+        mode: "0400"
+
+    - name: Copy Munge key to Compute nodes
+      copy:
+        src: /etc/munge/munge.key
+        dest: /tmp/munge.key
+      delegate_to: "{{ item }}"
+      with_items: "{{ groups['compute'] }}"
+
+- name: Configure Munge on Compute Nodes
+  hosts: compute
+  become: yes
+  tasks:
+    - name: Copy Munge key to /etc/munge on Compute Nodes
+      copy:
+        src: /tmp/munge.key
+        dest: /etc/munge/munge.key
+        owner: munge
+        group: munge
+        mode: "0400"
+        remote_src: yes # Indicate that the file is located on the remote machine
+
+    - name: Ensure Munge directories exist on Compute Nodes
+      file:
+        path: /etc/munge/
+        state: directory
+        owner: munge
+        group: munge
+        mode: "0700"
+
+    - name: Enable and start Munge service
+      systemd:
+        name: munge
+        enabled: yes
+        state: started
+
+- name: Configure slurm on all instance
+  hosts: all
+  become: yes
+  vars:
+    slurm_version: "23.02.1"
+    slurm_tar_url: "https://download.schedmd.com/slurm/slurm-{{ slurm_version }}.tar.bz2"
+    slurm_install_dir: "/opt/slurm"
+    slurm_build_dir: "/usr/local/src/slurm-{{ slurm_version }}"
+
+  tasks:
+    - name: Install required dependencies for SLURM
+      apt:
+        name:
+          - build-essential
+          - libmunge-dev
+          - libpam0g-dev
+          - libjson-c-dev
+          - liblz4-dev
+          - munge
+          - munge-tools
+          - python3
+        state: present
+      become: yes
+
+    - name: Ensure SLURM installation directory exists
+      file:
+        path: "{{ slurm_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download SLURM tarball
+      get_url:
+        url: "{{ slurm_tar_url }}"
+        dest: "/tmp/slurm-{{ slurm_version }}.tar.bz2"
+        mode: "0644"
+
+    - name: Extract SLURM tarball
+      unarchive:
+        src: "/tmp/slurm-{{ slurm_version }}.tar.bz2"
+        dest: "/usr/local/src"
+        remote_src: yes
+
+    - name: Run configure script for SLURM
+      command: ./configure --prefix={{ slurm_install_dir }}
+      args:
+        chdir: "{{ slurm_build_dir }}"
+      become: yes
+
+    - name: Compile SLURM using make
+      command: make
+      args:
+        chdir: "{{ slurm_build_dir }}"
+      become: yes
+
+    - name: Install SLURM using make install
+      command: make install
+      args:
+        chdir: "{{ slurm_build_dir }}"
+      become: yes
+
+    - name: Create SLURM user and group
+      user:
+        name: slurm
+        group: slurm
+        shell: /bin/false
+        system: yes
+        state: present
+
+    - name: Set permissions for SLURM directories
+      file:
+        path: "{{ slurm_install_dir }}"
+        owner: slurm
+        group: slurm
+        mode: "0755"
+        recurse: yes
+
+    - name: Copy SLURM configuration template (slurm.conf)
+      template:
+        src: slurm.conf.j2
+        dest: "{{ slurm_install_dir }}/etc/slurm.conf"
+        mode: "0644"
+
+    - name: Copy SLURM daemon management script (optional)
+      template:
+        src: slurm.service.j2
+        dest: /etc/systemd/system/slurm.service
+        mode: "0644"
+
+    - name: Reload systemd daemon to pick up new SLURM service
+      command: systemctl daemon-reload
+
+    - name: Enable and start SLURM service
+      systemd:
+        name: slurm
+        enabled: yes
+        state: started

@@ -1,0 +1,10 @@
+
+ClusterName=cluster
+ControlMachine={{ ansible_fqdn }}
+SlurmdPort=6818
+SlurmctldPort=6817
+AuthType=auth/munge
+CryptoType=crypto/munge
+StateSaveLocation={{ slurm_install_dir }}/state
+SlurmdSpoolDir={{ slurm_install_dir }}/spool
+# Configure nodes, partitions, etc.

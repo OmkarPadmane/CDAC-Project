@@ -1,0 +1,13 @@
+
+[Unit]
+Description=SLURM Job Scheduler
+After=network.target munge.service
+
+[Service]
+Type=simple
+User=slurm
+ExecStart={{ slurm_install_dir }}/sbin/slurmctld
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
